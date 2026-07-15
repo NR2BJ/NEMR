@@ -1,0 +1,10 @@
+{
+  "name": "nemr",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "NetEase Music session/region-flag probe",
+  "dependencies": {
+    "playwright": "1.49.1"
+  }
+}
