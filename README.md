@@ -1,136 +1,134 @@
-# NEMR
+# NEMR — NetEase Music Refresher
 
-한국/일본에서 NetEase Music을 쓰면 두 가지가 계속 귀찮게 한다.
+Keeps NetEase Music working outside mainland China, without a browser and
+without re-logging in.
 
-1. **지역락** — 며칠에 한 번씩 대부분의 곡이 회색으로 죽는다.
-2. **로그인 만료** — 웹 세션이 주기적으로 강제로 끊기고, 다시 로그인하려면 2차 인증(문자/QR/앱 승인)을 해야 한다.
+If you use NetEase Music from Korea/Japan/anywhere abroad, two things keep
+breaking:
 
-NEMR은 **브라우저 없이** 서버에서 이 둘을 대신 처리한다. 데스크톱 앱의 세션 쿠키를 한 번
-꺼내서, 앱이 하는 것과 똑같이 토큰을 주기적으로 갱신하고, 매번 "중국에서 접속한 것처럼"
-보이는 요청을 보낸다. 크롬도, 확장도, VNC도, 그리고 **로그인 자체를 안 하니까 2차 인증도 없다.**
+1. **Music goes grey.** Every few days most songs get region-locked.
+2. **You get logged out.** The web session drops on its own, and logging back in
+   means 2FA every time (SMS code / QR scan / app approval).
 
-## 왜 이게 되는가 (실제로 검증함)
+NEMR runs on a server and quietly handles both. You extract your desktop app's
+session once, paste it into one environment variable, and deploy. That's it.
 
-이 저장소의 접근은 추측이 아니라 실측으로 확인한 것이다.
+## How it works
 
-**지역락은 HTTP 헤더 하나다.** NetEaseMusicWorld 확장이 하는 일의 전부는 `music.163.com`
-요청에 `X-Real-IP: 211.161.244.70`(하드코딩된 중국 IP)을 붙이는 것이다. 네트이즈 API가 이
-헤더를 믿고 회색 대신 진짜 재생 URL을 준다. 즉 브라우저에서 확장으로 할 필요가 없고,
-서버에서 요청에 헤더만 넣으면 똑같이 언락된다. 실제로 서버에서 이 헤더로 320kbps 재생 URL을
-받아오는 것을 확인했다.
+Two small tricks, both verified against the live API:
 
-**로그인이 안 풀리는 건 "갱신"하기 때문이다.** 데스크톱 앱과 폰 앱은 로그인이 안 풀리는데
-웹만 풀린다. 이유는 앱이 리프레시 토큰(`MUSIC_R_T`)을 들고 있다가 액세스 토큰이 만료될 때쯤
-`/api/login/token/refresh`를 호출해 조용히 새로 받아오기 때문이다. 웹 플레이어는 이걸 안 한다.
-NEMR은 앱이 하는 이 갱신을 대신 해준다. 실제로 이 엔드포인트가 서버에서 200을 반환하고
-토큰쌍을 회전시키는 것, 그리고 **그렇게 해도 앱의 기존 로그인이 안 깨지는 것**까지 확인했다.
+- **Grey music is just one header.** NetEase decides your region from an
+  `X-Real-IP` header. NEMR sends every request with a mainland-China IP, so the
+  server keeps serving real playback URLs instead of grey ones. (This is exactly
+  what the NetEaseMusicWorld browser extension does — NEMR just does it from the
+  server, no browser needed.)
+- **Staying logged in = refreshing, not re-logging.** The desktop app never logs
+  out because it holds a refresh token and quietly renews its session. The web
+  player doesn't. NEMR does what the app does: it calls the refresh endpoint on a
+  timer. Since it reuses an existing session instead of starting a new login,
+  **2FA never comes up.**
 
-**핵심: 로그인을 새로 하는 게 아니라 이미 있는 세션을 이어간다.** 2차 인증은 *로그인할 때*
-나오는 관문인데, 우리는 그 관문을 지나갈 일 자체를 없앤다. 이게 "며칠에 한 번 QR 스캔"과
-근본적으로 다른 점이다 — 잘만 돌아가면 다시 로그인할 일이 없다.
+Every 6 hours the container refreshes the session, checks it's still alive, and
+(optionally) logs whether your grey tracks are playable. No dependencies — the
+NetEase request crypto is implemented on Node's built-in `crypto`.
 
-## 동작
+## Setup
 
-`INTERVAL_SEC`마다 (기본 6시간) 컨테이너가 세 가지를 한다. 모든 요청에 중국 `X-Real-IP`가 붙는다.
+### 1. Get your cookie line (once, on your Mac)
 
-1. **`/weapi/login/token/refresh`** — 토큰쌍을 갱신한다. 새 쿠키가 오면 볼륨의
-   `cookies.json`에 저장해서 다음 실행에 이어 쓴다. 이게 세션을 살려두는 부분.
-2. **`/weapi/w/nuser/account/get`** — 아직 로그인돼 있는지 확인(하트비트). 이 요청 자체가
-   "최근 중국 접속 기록"을 갱신해서 지역 플래그를 데워둔다.
-3. **`TRACK_IDS`가 있으면** 그 곡들을 두 번 조회한다 — 헤더 없이(폰이 보는 상태)와
-   헤더 있이(중국으로 보이는 상태). 로그에 남겨서 지역락이 실제로 걸렸다 풀렸다 하는 걸 관찰.
-
-의존성은 없다. weapi 암호화(AES+RSA)는 Node 내장 crypto로 [weapi.mjs](weapi.mjs)에 직접 구현했다.
-
-## 1단계: 쿠키 한 줄 뽑기 (한 번, 로컬에서)
-
-데스크톱 앱이 로그인돼 있는 컴퓨터에서 실행한다. **macOS:**
+Run this on the machine where the **desktop app is logged in**:
 
 ```bash
-python3 extract-macos.py            # 출력된 한 줄을 복사
-# 또는 클립보드로 바로:
 python3 extract-macos.py | pbcopy
 ```
 
-앱의 MMKV 저장소에서 세션 쿠키(`MUSIC_U`, `MUSIC_R_T`, `__csrf` 등 23개)를 꺼내
-`k=v; k=v; ...` **한 줄**로 출력한다. 이 줄이 곧 유효한 로그인이니 아무 데도 붙여넣지 말고
-2단계의 env에만 넣는다. python3는 요즘 macOS에 기본 탑재가 아닐 수 있는데, 없으면
-`xcode-select --install`로 깔린다.
+It reads the app's stored session and copies a single `key=value; key=value; …`
+line to your clipboard. That line **is** your login — don't paste it anywhere
+except step 2.
 
-> **Windows/기타:** 추출기는 아직 macOS 앱만 지원한다. 급하면 웹 플레이어(music.163.com)에
-> 로그인한 뒤 개발자도구 → Application → Cookies에서 `MUSIC_U`, `__csrf`, 그리고 있으면
-> `MUSIC_R_T`, `MUSIC_A_T`를 `이름=값; 이름=값` 형식으로 이어 붙이면 된다. 단 웹 쿠키는
-> `MUSIC_R_T`가 없을 수 있어, 그러면 지역락 갱신은 되지만 로그인 만료는 못 막는다.
+> No Python? macOS installs it with `xcode-select --install`.
+>
+> **Windows / no desktop app:** the extractor is macOS-only for now. As a
+> fallback, log into the web player, open DevTools → Application → Cookies, and
+> join the cookies into one `name=value; name=value` line. Include at least
+> `MUSIC_U` and `__csrf`; add `MUSIC_R_T` if present (without it, grey-unlock
+> still works but login refresh won't).
 
-## 2단계: Portainer로 띄우기 (파일도, 볼륨 설정도 없음)
+### 2. Deploy in Portainer
 
-Stacks → Add stack → **Repository**:
+**Stacks → Add stack → Repository:**
 
-- Repository URL: `https://github.com/NR2BJ/NEMR`
-- Repository reference: `refs/heads/main`
-- Compose path: `docker-compose.yml`
+| Field | Value |
+|-------|-------|
+| Repository URL | `https://github.com/NR2BJ/NEMR` |
+| Repository reference | `refs/heads/main` |
+| Compose path | `docker-compose.yml` |
 
-**Environment variables**에 1단계에서 복사한 줄을 넣는다:
+Under **Environment variables**, add:
 
-| 이름 | 값 |
-|---|---|
-| `NEMR_COOKIE` | (1단계에서 복사한 `k=v; k=v; ...` 한 줄) |
-| `TRACK_IDS` | (선택) 관찰할 회색 곡 ID, 쉼표 구분 |
+| Name | Value |
+|------|-------|
+| `NEMR_COOKIE` | the line from step 1 |
+| `TRACK_IDS` | *(optional)* grey track IDs to watch, comma-separated |
 
-`REGION_IP`(기본 `211.161.244.70`), `INTERVAL_SEC`(기본 6h)는 바꿀 때만 넣으면 된다.
-**Deploy the stack.**
+Click **Deploy**. Done.
 
-그게 전부다. 이미지는 이 레포에서 서버가 직접 빌드하고(도커 허브 불필요), 쿠키·로그는
-Docker가 자동 생성하는 `nemr-data` 명명 볼륨에 저장된다. 호스트에 파일을 올리거나 경로를
-정할 일이 없다.
+The image builds on your server straight from this repo — no Docker Hub, no
+registry. Your cookies and logs live in a Docker-managed volume (`nemr-data`)
+that's created automatically. Nothing to place on disk, no paths to configure.
 
-**부트스트랩 후:** 첫 실행이 끝나면 쿠키가 볼륨에 저장되고, 이후 재시작은 볼륨의 값(갱신된
-토큰 포함)을 쓴다. `NEMR_COOKIE` env는 지워도 되고 그대로 둬도 된다.
+## Checking it works
 
-**재시드(로그인이 죽었을 때):** 1단계를 다시 해서 `NEMR_COOKIE`에 새 줄을 넣고 스택을
-재배포하면 끝이다. 새 줄이 볼륨의 옛 세션과 다르면 자동으로 새 걸로 교체한다 — 볼륨을 지울
-필요 없다.
+Open the container logs in Portainer. A healthy run looks like:
 
-## 로그 읽기
-
-컨테이너 로그(Portainer → nemr → Logs)에 매 실행 JSON 한 줄이 찍힌다. 볼륨의
-`/data/nemr.jsonl`에도 쌓인다:
-
-```bash
-jq -c '{at, refresh: .refresh.code, login: .loggedIn,
-        phone: .phone.playable, china: .china.playable}' data/nemr.jsonl
+```
+[nemr] loaded 23 cookies from env; persistence ON (/data/cookies.json)
+{"at":"…","refresh":{"code":200},"loggedIn":true,"userId":12345678,…}
 ```
 
-| 관찰 | 의미 |
-|---|---|
-| `login: true`, `refresh: 200` | 정상. 세션 살아있고 갱신됨 |
-| `phone: 0`, `china: N` | 지역락이 걸려 있었고 헤더가 뚫었다 — 정상 동작 확인 |
-| `phone: N`, `china: N` | 아직 캐시가 따뜻함. 정상 |
-| `login: false` | 세션이 죽었다. 1단계를 다시 해서 재시드해야 함 |
+`loggedIn: true` and `refresh.code: 200` mean you're good. The `userId` should be
+**your** account — a quick sanity check that the right session loaded.
 
-`refresh.rotated`는 새 토큰이 저장된 횟수다. 대개 0이고(토큰이 아직 유효하면 네트이즈가
-같은 걸 돌려줌), 만료가 가까워지면 값이 오르면서 `cookies.json`이 갱신된다.
+If something's wrong, the log tells you:
 
-## 남은 불확실성 (솔직하게)
+| What you see | Meaning |
+|--------------|---------|
+| `loggedIn: false`, `userId: null`, `refresh.code` ≠ 200 | Session died — re-seed (below) |
+| `seed is missing MUSIC_U and/or __csrf` at startup | Bad cookie line — re-run the extractor |
+| `phone: 0`, `china: N` (with `TRACK_IDS`) | Region-lock was active and the header unlocked it — working as intended |
 
-- **장기 지속성은 아직 시간으로 검증 안 됨.** 갱신 엔드포인트가 200을 주고 토큰을 회전시키는
-  것, 그렇게 해도 앱 로그인이 안 깨지는 것까지는 실측했다. 하지만 이걸 몇 주 돌렸을 때 정말
-  세션이 무한정 유지되는지는 로그가 쌓여봐야 안다. `loggedIn`이 언젠가 false가 되면 이 가설이
-  틀린 것이고, 그땐 재시드 주기를 보고 다시 판단한다.
-- **서버 IP에서 앱 쿠키를 쓰는 것 자체가 세션을 끊을 가능성.** 웹만 끊긴 게 "웹이라서"인지
-  "그 세션이라서"인지 완전히는 구분 못 했다. 다만 폰 앱은 별도 로그인이라 이 도구와 무관하게
-  살아있으니, 최악의 경우에도 폰이 백업으로 남는다.
-- **하드코딩된 `211.161.244.70`이 언제까지 유효할지 모른다.** 안 되면 `REGION_IP`를 바꾼다.
-- `/weapi/...`는 비공식 엔드포인트다. 네트이즈가 바꾸면 깨진다.
-- 추출기는 앱 v3.x의 MMKV/NSKeyedArchiver 포맷 기준. 앱 대규모 업데이트 시 깨질 수 있다.
+## Re-seeding (when the login finally dies)
 
-## 검증된 것 / 안 된 것 요약
+Redo step 1 for a fresh line, update `NEMR_COOKIE`, and redeploy the stack. If
+the new line is a different session, NEMR swaps to it automatically — no need to
+touch the volume.
 
-이 저장소를 만들면서 실제 계정으로 확인한 것:
+## Environment variables
 
-- ✅ 데스크톱 앱 쿠키를 서버에서 재사용 → 인증 성공 (브라우저 0)
-- ✅ 갱신 엔드포인트 200 + 토큰 회전, 앱 로그인 유지
-- ✅ weapi로 320kbps 재생 URL 획득
-- ✅ 토큰 회전 시 `cookies.json` 병합·저장 로직
-- ⏳ 몇 주 단위 세션 무한 유지 — 로그로 확인 필요
-- ❌ Docker 빌드 실행 — 작성 환경에 Docker가 없어 미검증 (코드는 검증)
+| Name | Default | Purpose |
+|------|---------|---------|
+| `NEMR_COOKIE` | *(required first run)* | Your session cookie line |
+| `TRACK_IDS` | *(none)* | Grey track IDs to observe, comma-separated |
+| `REGION_IP` | `211.161.244.70` | Mainland-China IP for the `X-Real-IP` header |
+| `INTERVAL_SEC` | `21600` (6h) | How often to refresh |
+
+## Honest caveats
+
+- **Long-term durability isn't proven yet.** Refresh returns 200 and rotates the
+  token pair without breaking the app's own login — all verified. Whether it
+  keeps a session alive for *months* only the logs will tell. If `loggedIn` ever
+  goes false, that assumption was wrong; just re-seed.
+- **`211.161.244.70` is hardcoded upstream** and could stop working someday. Swap
+  `REGION_IP` if it does.
+- The `/weapi/…` endpoints are unofficial. NetEase can change them anytime.
+- The extractor targets the macOS app's current storage format (v3.x); a big app
+  update could break it.
+
+## Files
+
+| File | Role |
+|------|------|
+| `extract-macos.py` | One-time cookie extractor (runs on your Mac) |
+| `nemr.mjs` | The service: refresh, heartbeat, observe, repeat |
+| `weapi.mjs` | NetEase request encryption, zero dependencies |
+| `Dockerfile` / `docker-compose.yml` | Tiny `node:alpine` image + named volume |
