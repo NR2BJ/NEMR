@@ -1,41 +1,18 @@
 services:
-  # Long-running sampler. This is what a Portainer stack deploys.
-  probe:
+  nemr:
     build: .
-    image: nemr-probe
-    container_name: nemr-probe
+    image: nemr
+    container_name: nemr
     restart: unless-stopped
-    shm_size: 1gb
     environment:
-      # Optional. Track ids that go grey for you, comma separated, from a track
-      # URL: https://music.163.com/#/song?id=1234567 -> 1234567
-      # Leave empty and the refresh still works; you just lose the observations.
+      # Mainland-China IP put in the X-Real-IP header. The default is the one
+      # NetEaseMusicWorld hardcodes; override if it ever stops working.
+      REGION_IP: "${REGION_IP:-211.161.244.70}"
+      # How often to refresh the session + region flag. 6h default.
+      INTERVAL_SEC: "${INTERVAL_SEC:-21600}"
+      # Optional: grey-track ids to observe, comma separated. From a track URL
+      # https://music.163.com/#/song?id=1234567 -> 1234567
       TRACK_IDS: "${TRACK_IDS:-}"
-      # 6h. Shorter than the suspected region-cache TTL, long enough that the
-      # TTL is still measurable from the log.
-      PROBE_INTERVAL_SEC: "${PROBE_INTERVAL_SEC:-21600}"
-      SETTLE_MS: "${SETTLE_MS:-10000}"
     volumes:
+      # cookies.json (the seed) and the log live here. Seed it before first run.
       - ./data:/data
-      # Uncomment to use your own NetEaseMusicWorld+ instead of the ++ baked
-      # into the image. Copy the unpacked extension folder to ./ext first.
-      # - ./ext:/ext:ro
-
-  # One-off, interactive. Run when the probe reports loggedIn: false:
-  #   docker compose run --rm --service-ports login
-  login:
-    build: .
-    image: nemr-probe
-    container_name: nemr-login
-    profiles: ["manual"]
-    shm_size: 1gb
-    entrypoint: ["/app/login-entrypoint.sh"]
-    environment:
-      TRACK_IDS: "${TRACK_IDS:-}"
-      SETTLE_MS: "${SETTLE_MS:-10000}"
-      LOGIN_HOLD_MS: "${LOGIN_HOLD_MS:-600000}"
-    ports:
-      - "127.0.0.1:5900:5900"
-    volumes:
-      - ./data:/data
-      # - ./ext:/ext:ro
