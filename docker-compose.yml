@@ -7,9 +7,10 @@ services:
     restart: unless-stopped
     shm_size: 1gb
     environment:
-      # Track ids that go grey for you, comma separated. From a track URL:
-      # https://music.163.com/#/song?id=1234567  ->  1234567
-      TRACK_IDS: "${TRACK_IDS:?set TRACK_IDS in the stack env}"
+      # Optional. Track ids that go grey for you, comma separated, from a track
+      # URL: https://music.163.com/#/song?id=1234567 -> 1234567
+      # Leave empty and the refresh still works; you just lose the observations.
+      TRACK_IDS: "${TRACK_IDS:-}"
       # 6h. Shorter than the suspected region-cache TTL, long enough that the
       # TTL is still measurable from the log.
       PROBE_INTERVAL_SEC: "${PROBE_INTERVAL_SEC:-21600}"

@@ -55,20 +55,24 @@ Stacks → Add stack → Repository:
 - Repository URL: `https://github.com/NR2BJ/NEMR`
 - Compose path: `docker-compose.yml`
 
-환경변수에 `TRACK_IDS`를 넣는다 (없으면 뜨다가 죽는다). 회색으로 변하는 곡 ID 몇 개,
-쉼표로 구분. 트랙 URL에서 딴다: `https://music.163.com/#/song?id=1234567` → `1234567`
+그대로 띄우면 본업(6시간마다 캐시 갱신)은 바로 돈다. `TRACK_IDS`는 안 넣어도 되고,
+넣으면 아래 관찰 기록이 같이 쌓인다. 회색으로 변하는 곡 ID 몇 개를 쉼표로 구분해서 넣는다.
+트랙 URL에서 딴다: `https://music.163.com/#/song?id=1234567` → `1234567`
 
 원래부터 재생 가능한 곡을 넣으면 관찰값이 무의미해지니, **확실히 회색 되는 곡**으로 고를 것.
 
 | 환경변수 | 기본값 | 설명 |
 |---|---|---|
-| `TRACK_IDS` | (필수) | 관찰할 곡 ID, 쉼표 구분 |
+| `TRACK_IDS` | (없음) | 관찰할 곡 ID, 쉼표 구분. 비워도 갱신은 동작 |
 | `PROBE_INTERVAL_SEC` | `21600` (6h) | 갱신 주기 |
 | `SETTLE_MS` | `10000` | 페이지 로드 후 확장이 붙기까지 대기 |
 
 ## 최초 로그인 (한 번만)
 
-서버에 화면이 없으니 VNC로 붙어서 QR을 스캔한다.
+**이건 Portainer UI로는 안 되고 서버 셸이 필요하다.** 스택을 띄우기 전에 먼저 해야 한다 —
+로그인이 없으면 갱신할 세션 자체가 없다.
+
+서버에 화면이 없으니 VNC로 붙어서 QR을 스캔한다. 리포지토리를 클론한 곳에서:
 
 ```bash
 docker compose run --rm --service-ports login
