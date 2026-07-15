@@ -1,12 +1,15 @@
 services:
   nemr:
-    build: .
+    build: .                 # built on the server from this repo — no registry needed
     image: nemr
     container_name: nemr
     restart: unless-stopped
     environment:
-      # Mainland-China IP put in the X-Real-IP header. The default is the one
-      # NetEaseMusicWorld hardcodes; override if it ever stops working.
+      # Paste the line printed by the extract script here (one time). Once the
+      # /data volume has bootstrapped its cookies.json you can remove this.
+      NEMR_COOKIE: "${NEMR_COOKIE:-}"
+      # Mainland-China IP for the X-Real-IP header. Default is the one the
+      # NetEaseMusicWorld extension hardcodes; override if it stops working.
       REGION_IP: "${REGION_IP:-211.161.244.70}"
       # How often to refresh the session + region flag. 6h default.
       INTERVAL_SEC: "${INTERVAL_SEC:-21600}"
@@ -14,8 +17,9 @@ services:
       # https://music.163.com/#/song?id=1234567 -> 1234567
       TRACK_IDS: "${TRACK_IDS:-}"
     volumes:
-      # cookies.json (the seed) and the log live here. Seed it before first run.
-      # Set DATA_DIR to an absolute host path when deploying from a Portainer Git
-      # stack — a relative ./data would resolve inside Portainer's clone dir,
-      # where you can't easily place the cookie. e.g. DATA_DIR=/opt/nemr/data
-      - ${DATA_DIR:-./data}:/data
+      # Named volume Docker creates automatically — holds the rotated cookies and
+      # the log. Nothing to place on the host.
+      - nemr-data:/data
+
+volumes:
+  nemr-data:

@@ -33,8 +33,8 @@ NEMR은 앱이 하는 이 갱신을 대신 해준다. 실제로 이 엔드포인
 
 `INTERVAL_SEC`마다 (기본 6시간) 컨테이너가 세 가지를 한다. 모든 요청에 중국 `X-Real-IP`가 붙는다.
 
-1. **`/weapi/login/token/refresh`** — 토큰쌍을 갱신한다. 새 쿠키가 오면 `cookies.json`에
-   저장해서 다음 실행에 이어 쓴다. 이게 세션을 살려두는 부분.
+1. **`/weapi/login/token/refresh`** — 토큰쌍을 갱신한다. 새 쿠키가 오면 볼륨의
+   `cookies.json`에 저장해서 다음 실행에 이어 쓴다. 이게 세션을 살려두는 부분.
 2. **`/weapi/w/nuser/account/get`** — 아직 로그인돼 있는지 확인(하트비트). 이 요청 자체가
    "최근 중국 접속 기록"을 갱신해서 지역 플래그를 데워둔다.
 3. **`TRACK_IDS`가 있으면** 그 곡들을 두 번 조회한다 — 헤더 없이(폰이 보는 상태)와
@@ -42,45 +42,59 @@ NEMR은 앱이 하는 이 갱신을 대신 해준다. 실제로 이 엔드포인
 
 의존성은 없다. weapi 암호화(AES+RSA)는 Node 내장 crypto로 [weapi.mjs](weapi.mjs)에 직접 구현했다.
 
-## 1단계: 쿠키 씨앗 만들기 (한 번, 로컬에서)
+## 1단계: 쿠키 한 줄 뽑기 (한 번, 로컬에서)
 
 데스크톱 앱이 로그인돼 있는 컴퓨터에서 실행한다. **macOS:**
 
 ```bash
-python3 extract-macos.py > cookies.json
+python3 extract-macos.py            # 출력된 한 줄을 복사
+# 또는 클립보드로 바로:
+python3 extract-macos.py | pbcopy
 ```
 
 앱의 MMKV 저장소에서 세션 쿠키(`MUSIC_U`, `MUSIC_R_T`, `__csrf` 등 23개)를 꺼내
-`cookies.json`으로 만든다. 값은 화면에 안 찍히고 파일로만 나간다. python3는 macOS에 기본 탑재.
+`k=v; k=v; ...` **한 줄**로 출력한다. 이 줄이 곧 유효한 로그인이니 아무 데도 붙여넣지 말고
+2단계의 env에만 넣는다. python3는 요즘 macOS에 기본 탑재가 아닐 수 있는데, 없으면
+`xcode-select --install`로 깔린다.
 
 > **Windows/기타:** 추출기는 아직 macOS 앱만 지원한다. 급하면 웹 플레이어(music.163.com)에
-> 로그인한 뒤 브라우저 개발자도구 → Application → Cookies에서 `MUSIC_U`, `__csrf`,
-> 그리고 있으면 `MUSIC_R_T`, `MUSIC_A_T`를 복사해 같은 형식의 JSON을 손으로 만들면 된다.
-> 단 웹에서 뽑은 쿠키는 `MUSIC_R_T`가 없을 수 있어 갱신이 안 될 수 있다 — 그러면 지역락
-> 갱신은 되지만 로그인 만료는 못 막는다.
+> 로그인한 뒤 개발자도구 → Application → Cookies에서 `MUSIC_U`, `__csrf`, 그리고 있으면
+> `MUSIC_R_T`, `MUSIC_A_T`를 `이름=값; 이름=값` 형식으로 이어 붙이면 된다. 단 웹 쿠키는
+> `MUSIC_R_T`가 없을 수 있어, 그러면 지역락 갱신은 되지만 로그인 만료는 못 막는다.
 
-이 파일이 곧 유효한 로그인이다. 아무 데도 커밋하지 말 것 (`.gitignore`에 넣어놨다).
+## 2단계: Portainer로 띄우기 (파일도, 볼륨 설정도 없음)
 
-## 2단계: Portainer로 띄우기
-
-`cookies.json`을 서버의 스택 데이터 폴더 `./data/cookies.json`에 올린다. 그다음
-Stacks → Add stack → Repository:
+Stacks → Add stack → **Repository**:
 
 - Repository URL: `https://github.com/NR2BJ/NEMR`
+- Repository reference: `refs/heads/main`
 - Compose path: `docker-compose.yml`
 
-`./data`가 컨테이너의 `/data`로 마운트되니, 씨앗 쿠키를 거기 두면 된다. 환경변수는 전부
-선택이다:
+**Environment variables**에 1단계에서 복사한 줄을 넣는다:
 
-| 환경변수 | 기본값 | 설명 |
-|---|---|---|
-| `REGION_IP` | `211.161.244.70` | X-Real-IP에 넣는 중국 IP |
-| `INTERVAL_SEC` | `21600` (6h) | 갱신 주기 |
-| `TRACK_IDS` | (없음) | 관찰할 회색 곡 ID, 쉼표 구분 |
+| 이름 | 값 |
+|---|---|
+| `NEMR_COOKIE` | (1단계에서 복사한 `k=v; k=v; ...` 한 줄) |
+| `TRACK_IDS` | (선택) 관찰할 회색 곡 ID, 쉼표 구분 |
+
+`REGION_IP`(기본 `211.161.244.70`), `INTERVAL_SEC`(기본 6h)는 바꿀 때만 넣으면 된다.
+**Deploy the stack.**
+
+그게 전부다. 이미지는 이 레포에서 서버가 직접 빌드하고(도커 허브 불필요), 쿠키·로그는
+Docker가 자동 생성하는 `nemr-data` 명명 볼륨에 저장된다. 호스트에 파일을 올리거나 경로를
+정할 일이 없다.
+
+**부트스트랩 후:** 첫 실행이 끝나면 쿠키가 볼륨에 저장되고, 이후 재시작은 볼륨의 값(갱신된
+토큰 포함)을 쓴다. `NEMR_COOKIE` env는 지워도 되고 그대로 둬도 된다.
+
+**재시드(로그인이 죽었을 때):** 1단계를 다시 해서 `NEMR_COOKIE`에 새 줄을 넣고 스택을
+재배포하면 끝이다. 새 줄이 볼륨의 옛 세션과 다르면 자동으로 새 걸로 교체한다 — 볼륨을 지울
+필요 없다.
 
 ## 로그 읽기
 
-`data/nemr.jsonl`에 매 실행 한 줄:
+컨테이너 로그(Portainer → nemr → Logs)에 매 실행 JSON 한 줄이 찍힌다. 볼륨의
+`/data/nemr.jsonl`에도 쌓인다:
 
 ```bash
 jq -c '{at, refresh: .refresh.code, login: .loggedIn,

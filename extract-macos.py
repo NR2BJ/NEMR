@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Seed cookies.json from the NetEase desktop app on macOS.
+"""Print the NetEase desktop-app session cookie as one line, for NEMR_COOKIE.
 
-    python3 extract-macos.py > cookies.json
+    python3 extract-macos.py
+
+Copy the single line it prints and paste it into the NEMR_COOKIE environment
+variable of the Docker stack. The value goes to stdout only (nothing is logged),
+so you can also pipe it, e.g.  python3 extract-macos.py | pbcopy
 
 The app keeps its cookies as an NSKeyedArchiver plist inside an MMKV file. We
-find the "cookie" MMKV entry, parse the archived NSHTTPCookie objects, and print
-a flat {name: value} JSON to stdout. Nothing is logged, so redirect straight
-into the file and move it to the server.
+find the "cookie" MMKV entry and parse the archived NSHTTPCookie objects.
 """
-import json, os, plistlib, sys
+import os, plistlib, sys
 
 MMKV = os.environ.get(
     "MMKV_PATH",
@@ -69,6 +71,7 @@ if "MUSIC_U" not in cookies or "__csrf" not in cookies:
     print("[nemr] found:", ", ".join(cookies) or "(none)", file=sys.stderr)
     sys.exit("[nemr] MUSIC_U/__csrf missing — is the desktop app logged in?")
 
-print(f"[nemr] extracted {len(cookies)} cookies incl. MUSIC_U, __csrf", file=sys.stderr)
-json.dump(cookies, sys.stdout, indent=2)
-sys.stdout.write("\n")
+# Human-facing notes go to stderr; the copy-paste line is the only thing on stdout.
+print(f"[nemr] extracted {len(cookies)} cookies incl. MUSIC_U, __csrf.", file=sys.stderr)
+print("[nemr] paste the line below into the NEMR_COOKIE env var:\n", file=sys.stderr)
+print("; ".join(f"{k}={v}" for k, v in cookies.items()))
