@@ -15,4 +15,7 @@ services:
       TRACK_IDS: "${TRACK_IDS:-}"
     volumes:
       # cookies.json (the seed) and the log live here. Seed it before first run.
-      - ./data:/data
+      # Set DATA_DIR to an absolute host path when deploying from a Portainer Git
+      # stack — a relative ./data would resolve inside Portainer's clone dir,
+      # where you can't easily place the cookie. e.g. DATA_DIR=/opt/nemr/data
+      - ${DATA_DIR:-./data}:/data
